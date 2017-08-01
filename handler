@@ -1,0 +1,150 @@
+#!/usr/bin/env php
+<?php
+use AppZz\Http\TransmissionRPC;
+use AppZz\Filesystem\Finder;
+use AppZz\Helpers\Arr;
+use AppZz\CLI\Notifier;
+use AppZz\Http\Pushover;
+
+chdir(__DIR__);
+
+$config_files = [
+	'config.php',
+	'config.default.php',
+];
+
+$config = [];
+$exitcode = 1;
+$fh = fopen ('./events.log', 'ab');
+fwrite ($fh, sprintf ("[%s] Запуск\n", date ('d.m.Y H:i:s')));
+
+foreach ($config_files as $config_file):
+	if (file_exists($config_file)):
+		$config = include ($config_file);
+		break;
+	endif;
+endforeach;
+
+if (empty($config)):
+	fwrite ($fh, sprintf ("[%s] Конфиг не загружен\n", date ('d.m.Y H:i:s')));
+	exit (1);
+endif;
+
+require 'vendor/autoload.php';
+
+try {
+
+	$finder = Finder::factory (Arr::get($config, 'watch_dir'), 0)
+						->types('torrent')
+						->find()
+						->sort('date', FALSE);
+
+	$files = $finder->get_files();
+	//$files = array_slice($files, 0, 4);
+
+	if ( ! empty ($files)):
+
+		$bcoder = new Bhutanio\BEncode\BEncode;
+		$transmission = TransmissionRPC::factory (Arr::path($config, 'transmission.rpc'));
+
+		if (($username = Arr::path($config, 'transmission.username')) AND ($password = Arr::path($config, 'transmission.password'))):
+			$transmission->auth($username, $password);
+		endif;
+
+		$success = $duplicate = $errors = [];
+
+		foreach ($files as $file):
+			fwrite ($fh, sprintf ("[%s] %s\n", date ('d.m.Y H:i:s'), $file));
+			$torrent = $bcoder->bdecode(file_get_contents($file));
+			$torrent_name = Arr::path($torrent, 'info.name');
+			$directory = Arr::path($config, 'download_dir.default');
+
+			if ( ($xxx_pattern = Arr::get($config, 'xxx_pattern')) !== FALSE AND preg_match($xxx_pattern, $torrent_name) OR preg_match($xxx_pattern, $file)):
+				$directory = Arr::path($config, 'download_dir.xxx');
+			endif;
+
+			//fwrite ($fh, sprintf ("[%s] Download Dir: %s\n", date ('d.m.Y H:i:s'), $directory));
+
+			$add = $transmission->add_metainfo ($file, $directory);
+			//$add = ['status'=>'torrent-added'];
+			$status = Arr::get($add, 'status');
+
+			$del_file = TRUE;
+			$torrent_name = Arr::get($add, 'name', $torrent_name);
+
+			switch ($status):
+
+				case 'torrent-added':
+					$status_txt = 'Торрент добавлен';
+					$success[] = $torrent_name;
+				break;
+
+				case 'torrent-duplicate':
+					$status_txt = 'Торрент уже существует';
+					$duplicate[] = $torrent_name;
+				break;
+				default:
+					$del_file = FALSE;
+					$status_txt = 'Неизвестная ошибка';
+					$errors[] = $torrent_name;
+				break;
+
+			endswitch;
+
+			if (Arr::path($config, 'notifiers.current') == 'notifier'):
+				$notifier = Notifier::factory(Arr::path($config, 'notifiers.notifier'))
+					->title('Transmission')
+					->subtitle($status_txt)
+					->message($torrent_name);
+
+				if (($bundle = Arr::path($config, 'transmission.bundle')))
+					$notifier->sender($bundle);
+
+				$notifier->send(FALSE);
+				usleep(500);
+			endif;
+
+			if (Arr::path($config, 'delete_source_files') === TRUE AND $del_file):
+				unlink ($file);
+			endif;
+
+		endforeach;
+
+		if (Arr::path($config, 'notifiers.current') == 'pushover'):
+			$message_parts = [];
+			$message = $message_added = '';
+
+			if (count($success)) {
+				$message_parts[] = sprintf ('Новых торрентов: %d', count($success));
+				$message_added = "\n\n<b>Добавлено:</b>\n" . implode ("\n", $success);
+			}
+
+			if (count($duplicate))
+				$message_parts[] = sprintf ('Дубликатов: %d', count($duplicate));
+
+			if (count($errors))
+				$message_parts[] = sprintf ('Ошибок: %d', count($errors));
+
+			$message = implode (', ', $message_parts) . $message_added;
+
+			$push = Pushover::factory (Arr::path($config, 'notifiers.pushover.user'), Arr::path($config, 'notifiers.pushover.token'))
+								->title('Transmission')
+								->message ($message, TRUE);
+
+			if (($webgui = Arr::path($config, 'transmission.webgui'))):
+				$push->url($webgui, 'Web GUI');
+			endif;
+
+			$push->send();
+		endif;
+
+	endif;
+
+	$exitcode = 0;
+
+} catch (\Exception $e) {
+	fwrite ($fh, sprintf ("[%s] %s\n", date ('d.m.Y H:i:s'), $e->getMessage()));
+}
+
+fclose ($fh);
+exit ($exitcode);

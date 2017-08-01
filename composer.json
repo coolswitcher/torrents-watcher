@@ -1,0 +1,9 @@
+{
+    "require": {
+        "appzz/transmission-rpc": "^1.0",
+        "appzz/terminal-notifier": "^1.0",
+        "appzz/finder": "^2.0",
+        "appzz/pushover-client": "^1.0",
+        "bhutanio/torrent-bencode": "dev-master"
+    }
+}
