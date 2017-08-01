@@ -20,7 +20,7 @@ fwrite ($fh, sprintf ("[%s] Запуск\n", date ('d.m.Y H:i:s')));
 
 foreach ($config_files as $config_file):
 	if (file_exists($config_file)):
-		$config = include ($config_file);
+		$config = require ($config_file);
 		break;
 	endif;
 endforeach;
@@ -30,7 +30,7 @@ if (empty($config)):
 	exit (1);
 endif;
 
-require 'vendor/autoload.php';
+require isset($config['vendor_autoload']) ? $config['vendor_autoload'] : 'vendor/autoload.php';
 
 try {
 

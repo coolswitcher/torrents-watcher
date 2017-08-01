@@ -46,4 +46,5 @@ return [
 	 */
 	'xxx_pattern'         =>FALSE,
 	'watch_dir'           => 'pathto/Downloads', //папка с торрент-файлами .torrent
+	'vendor_autoload'	  => 'vendor/autoload.php', //composer autloader path
 ];
