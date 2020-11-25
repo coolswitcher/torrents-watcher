@@ -39,7 +39,7 @@ try {
 						->find()
 						->sort('date', FALSE);
 
-	$files = $finder->get_files();
+	$files = $finder->get_list();
 	//$files = array_slice($files, 0, 4);
 
 	if ( ! empty ($files)):
